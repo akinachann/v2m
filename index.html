@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 节点追加工具 v3.1</title>
+    <title>Mihomo 节点追加工具 v3.2</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
@@ -21,7 +21,7 @@
 </head>
 <body>
 
-    <h2>🚀 节点追加助手 (YAML 增强版)</h2>
+    <h2>🚀 节点追加助手 (v3.2 稳定版)</h2>
 
     <div class="card">
         <label>GitHub 配置</label>
@@ -83,7 +83,8 @@
                 };
                 document.getElementById('yamlPreview').innerText = `- ${JSON.stringify(newNodeObj)}`;
                 document.getElementById('syncBtn').style.display = 'block';
-                document.getElementById('syncStatus').innerText = "解析成功。";
+                document.getElementById('syncStatus').innerText = "解析成功，准备同步。";
+                document.getElementById('syncStatus').style.color = "#007bff";
             } catch (e) {
                 alert("解析失败");
             }
@@ -100,47 +101,52 @@
             const parts = cleanPath.split('/');
             const owner = parts[0], repo = parts[1], branch = parts[2], filePath = parts.slice(3).join('/');
 
-            statusDiv.innerText = "⏳ 正在获取现有节点...";
+            statusDiv.innerText = "⏳ 正在获取云端最新状态...";
             try {
+                // 增加时间戳参数防止浏览器缓存旧的 SHA
                 const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+                const timestamp = new Date().getTime();
+                
                 let sha = null;
                 let existingProxies = [];
 
-                const getRes = await fetch(`${apiUrl}?ref=${branch}`, {
-                    headers: { "Authorization": `token ${token}` }
+                // 1. 获取最新内容和最新的 SHA
+                const getRes = await fetch(`${apiUrl}?ref=${branch}&t=${timestamp}`, {
+                    headers: { 
+                        "Authorization": `token ${token}`,
+                        "Cache-Control": "no-cache" 
+                    }
                 });
 
                 if (getRes.ok) {
                     const fileData = await getRes.json();
-                    sha = fileData.sha;
+                    sha = fileData.sha; // 拿到最新的 SHA
                     const rawContent = decodeURIComponent(escape(atob(fileData.content)));
                     
-                    // --- 关键改进：使用正则表达式提取所有旧节点 ---
-                    // 匹配所有形如 { "name": ... } 的 JSON 对象
                     const regex = /\{[\s\S]*?\}/g;
                     const matches = rawContent.match(regex);
                     if (matches) {
                         matches.forEach(m => {
                             try {
-                                existingProxies.push(JSON.parse(m));
-                            } catch(e) { console.error("解析旧节点失败", e); }
+                                const p = JSON.parse(m);
+                                if(p.name && p.type) existingProxies.push(p);
+                            } catch(e) { }
                         });
                     }
                 }
 
-                // 合并去重 (以 name 为准)
+                // 2. 合并去重
                 const otherProxies = existingProxies.filter(p => p.name !== newNodeObj.name);
                 const finalProxies = [...otherProxies, newNodeObj];
-
-                // 构造标准的 YAML 格式
                 const finalContent = "proxies:\n" + finalProxies.map(p => `  - ${JSON.stringify(p)}`).join("\n");
 
-                statusDiv.innerText = `⏳ 正在追加并提交...`;
+                // 3. 提交更新
+                statusDiv.innerText = `⏳ 正在提交新版本 (SHA: ${sha ? sha.substring(0,7) : 'new'})...`;
                 const putRes = await fetch(apiUrl, {
                     method: 'PUT',
                     headers: { "Authorization": `token ${token}`, "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        message: `Append node: ${newNodeObj.name}`,
+                        message: `Update node: ${newNodeObj.name}`,
                         content: btoa(unescape(encodeURIComponent(finalContent))),
                         branch: branch,
                         sha: sha || undefined
@@ -148,14 +154,19 @@
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = `✅ 同平成功！当前共有 ${finalProxies.length} 个节点。`;
+                    statusDiv.innerText = `✅ 追加成功！当前列表共 ${finalProxies.length} 个节点。`;
                     statusDiv.style.color = "#28a745";
+                    // 成功后清空输入框，防止重复点击
+                    document.getElementById('vlessInput').value = "";
+                    document.getElementById('syncBtn').style.display = 'none';
                 } else {
                     const err = await putRes.json();
-                    statusDiv.innerText = "❌ 失败: " + err.message;
+                    statusDiv.innerText = "❌ 提交失败: " + err.message;
+                    statusDiv.style.color = "#dc3545";
                 }
             } catch (err) {
-                statusDiv.innerText = "❌ 错误: " + err.message;
+                statusDiv.innerText = "❌ 插件或网络异常: " + err.message;
+                statusDiv.style.color = "#dc3545";
             }
         }
     </script>
