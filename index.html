@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 节点追加工具 v3.0</title>
+    <title>Mihomo 节点追加工具 v3.1</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
@@ -17,17 +17,16 @@
         label { font-size: 13px; font-weight: bold; color: #666; }
         .status { font-size: 12px; color: #007bff; margin-top: 8px; display: block; min-height: 1.2em; }
         h2 { text-align: center; color: #2c3e50; }
-        .count-tag { float: right; background: #e1e4e8; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
     </style>
 </head>
 <body>
 
-    <h2>🚀 节点追加助手 (YAML)</h2>
+    <h2>🚀 节点追加助手 (YAML 增强版)</h2>
 
     <div class="card">
         <label>GitHub 配置</label>
         <input type="password" id="ghToken" placeholder="GitHub Token (PAT)">
-        <input type="text" id="ghPath" placeholder="粘贴私有仓库文件 URL">
+        <input type="text" id="ghPath" placeholder="粘贴私有仓库 proxy.yaml 的 URL">
         <button class="btn-save" onclick="saveSettings()">保存配置</button>
         <span id="saveStatus" class="status"></span>
     </div>
@@ -37,7 +36,7 @@
         <textarea id="vlessInput" placeholder="vless://..."></textarea>
         <button class="btn-convert" onclick="handleConvert()">解析节点</button>
         
-        <label style="display:block; margin-top:15px;">2. 待追加内容 (YAML 格式)</label>
+        <label style="display:block; margin-top:15px;">2. 待追加内容预览</label>
         <pre id="yamlPreview">等待解析...</pre>
         
         <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 追加并同步到 GitHub</button>
@@ -82,10 +81,9 @@
                     },
                     "client-fingerprint": params.get('fp') || "chrome"
                 };
-                // 预览显示为 YAML 风格的单行
                 document.getElementById('yamlPreview').innerText = `- ${JSON.stringify(newNodeObj)}`;
                 document.getElementById('syncBtn').style.display = 'block';
-                document.getElementById('syncStatus').innerText = "解析成功，准备追加。";
+                document.getElementById('syncStatus').innerText = "解析成功。";
             } catch (e) {
                 alert("解析失败");
             }
@@ -102,13 +100,12 @@
             const parts = cleanPath.split('/');
             const owner = parts[0], repo = parts[1], branch = parts[2], filePath = parts.slice(3).join('/');
 
-            statusDiv.innerText = "⏳ 正在读取远程现有节点...";
+            statusDiv.innerText = "⏳ 正在获取现有节点...";
             try {
                 const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
                 let sha = null;
                 let existingProxies = [];
 
-                // 1. 获取现有文件内容
                 const getRes = await fetch(`${apiUrl}?ref=${branch}`, {
                     headers: { "Authorization": `token ${token}` }
                 });
@@ -116,32 +113,34 @@
                 if (getRes.ok) {
                     const fileData = await getRes.json();
                     sha = fileData.sha;
-                    // Base64 解码并转为对象
                     const rawContent = decodeURIComponent(escape(atob(fileData.content)));
-                    try {
-                        // 尝试解析 JSON/YAML 结构
-                        const parsed = JSON.parse(rawContent);
-                        existingProxies = parsed.proxies || [];
-                    } catch(e) {
-                        // 如果文件是空的或者格式不对，初始化为空数组
-                        existingProxies = [];
+                    
+                    // --- 关键改进：使用正则表达式提取所有旧节点 ---
+                    // 匹配所有形如 { "name": ... } 的 JSON 对象
+                    const regex = /\{[\s\S]*?\}/g;
+                    const matches = rawContent.match(regex);
+                    if (matches) {
+                        matches.forEach(m => {
+                            try {
+                                existingProxies.push(JSON.parse(m));
+                            } catch(e) { console.error("解析旧节点失败", e); }
+                        });
                     }
                 }
 
-                // 2. 合并并去重 (以 name 为准，若重名则覆盖旧的)
+                // 合并去重 (以 name 为准)
                 const otherProxies = existingProxies.filter(p => p.name !== newNodeObj.name);
                 const finalProxies = [...otherProxies, newNodeObj];
 
-                // 3. 构建 YAML 格式内容
+                // 构造标准的 YAML 格式
                 const finalContent = "proxies:\n" + finalProxies.map(p => `  - ${JSON.stringify(p)}`).join("\n");
 
-                // 4. 推送回 GitHub
-                statusDiv.innerText = `⏳ 正在提交 (共 ${finalProxies.length} 个节点)...`;
+                statusDiv.innerText = `⏳ 正在追加并提交...`;
                 const putRes = await fetch(apiUrl, {
                     method: 'PUT',
                     headers: { "Authorization": `token ${token}`, "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        message: `Add node: ${newNodeObj.name}`,
+                        message: `Append node: ${newNodeObj.name}`,
                         content: btoa(unescape(encodeURIComponent(finalContent))),
                         branch: branch,
                         sha: sha || undefined
@@ -149,11 +148,11 @@
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = `✅ 追加成功！当前共有 ${finalProxies.length} 个节点。`;
+                    statusDiv.innerText = `✅ 同平成功！当前共有 ${finalProxies.length} 个节点。`;
                     statusDiv.style.color = "#28a745";
                 } else {
                     const err = await putRes.json();
-                    statusDiv.innerText = "❌ 同步失败: " + err.message;
+                    statusDiv.innerText = "❌ 失败: " + err.message;
                 }
             } catch (err) {
                 statusDiv.innerText = "❌ 错误: " + err.message;
