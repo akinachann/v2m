@@ -3,31 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Private Node Converter</title>
+    <title>Mihomo 节点同步工具</title>
     <style>
-        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 0 15px; background: #f9f9f9; }
-        textarea { width: 100%; height: 120px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { background: #2ea44f; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 10px; width: 100%; font-size: 16px; }
-        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; }
-        h2 { color: #333; }
+        body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; }
+        .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        textarea { width: 100%; height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; }
+        input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-convert { background: #007bff; color: white; margin-bottom: 10px; }
+        .btn-sync { background: #28a745; color: white; }
+        .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; }
+        label { font-size: 13px; font-weight: bold; color: #666; }
+        .status { font-size: 12px; color: #007bff; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <h2>VLESS -> Mihomo (JSON 单行)</h2>
-    <textarea id="input" placeholder="请在此粘贴 vless:// 链接..."></textarea>
-    <button onclick="convert()">立即转换</button>
-    <h3>结果 (点击框内全选):</h3>
-    <pre id="output" onclick="selectText(this)">等待输入...</pre>
+
+    <h2>🚀 节点同步助手</h2>
+
+    <div class="card">
+        <label>GitHub Personal Access Token (PAT)</label>
+        <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxx">
+        
+        <label>私有仓库路径 (格式: 用户名/仓库名/main/文件名.json)</label>
+        <input type="text" id="ghPath" placeholder="akinachann/my-nodes/main/proxy.json">
+        
+        <button class="btn-save" onclick="saveSettings()">保存配置到浏览器</button>
+        <span id="saveStatus" class="status"></span>
+    </div>
+
+    <div class="card">
+        <label>粘贴 VLESS 链接</label>
+        <textarea id="vlessInput" placeholder="vless://..."></textarea>
+        <button class="btn-convert" onclick="handleConvert()">1. 解析链接</button>
+        
+        <label>生成的 Mihomo JSON</label>
+        <pre id="jsonOutput">等待解析...</pre>
+        
+        <button class="btn-sync" id="syncBtn" onclick="handleSync()" style="display:none;">2. 同步到 GitHub 私有仓库</button>
+        <div id="syncStatus" class="status"></div>
+    </div>
 
     <script>
-        function convert() {
-            const val = document.getElementById('input').value.trim();
-            if (!val) return;
+        // 页面加载时自动填充保存过的配置
+        window.onload = () => {
+            document.getElementById('ghToken').value = localStorage.getItem('gh_token') || '';
+            document.getElementById('ghPath').value = localStorage.getItem('gh_path') || '';
+        };
+
+        function saveSettings() {
+            localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
+            localStorage.setItem('gh_path', document.getElementById('ghPath').value.trim());
+            document.getElementById('saveStatus').innerText = '✅ 配置已保存在本地浏览器';
+            setTimeout(() => document.getElementById('saveStatus').innerText = '', 2000);
+        }
+
+        // 核心逻辑：VLESS 字符串转 JSON 对象
+        function parseVless(urlStr) {
             try {
-                const url = new URL(val);
+                const url = new URL(urlStr);
                 const params = new URLSearchParams(url.search);
-                const config = {
-                    "name": decodeURIComponent(url.hash.substring(1)) || "HK_Node",
+                return {
+                    "name": decodeURIComponent(url.hash.substring(1)) || "New_Node",
                     "type": "vless",
                     "server": url.hostname,
                     "port": parseInt(url.port),
@@ -43,17 +81,26 @@
                     },
                     "client-fingerprint": params.get('fp') || "chrome"
                 };
-                document.getElementById('output').innerText = JSON.stringify(config);
             } catch (e) {
-                alert("链接解析失败，请检查格式是否正确");
+                alert("链接解析失败，请检查格式");
+                return null;
             }
         }
-        function selectText(element) {
-            const range = document.createRange();
-            range.selectNodeContents(element);
-            const selection = window.getSelection();
-            selection.removeAllRanges();
-            selection.addRange(range);
+
+        let currentJson = null;
+
+        function handleConvert() {
+            const input = document.getElementById('vlessInput').value.trim();
+            currentJson = parseVless(input);
+            if (currentJson) {
+                document.getElementById('jsonOutput').innerText = JSON.stringify(currentJson, null, 2);
+                document.getElementById('syncBtn').style.display = 'block';
+            }
+        }
+
+        // 下一步我们将在这里编写 handleSync() 的 API 调用代码
+        async function handleSync() {
+            alert("解析成功！下一步我们将接入 GitHub API 实现自动推送。");
         }
     </script>
 </body>
