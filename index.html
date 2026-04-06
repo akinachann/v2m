@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 节点同步工具</title>
+    <title>Mihomo 节点追加工具 v3.0</title>
     <style>
-        body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
+        body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
         textarea { width: 100%; height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; resize: vertical; }
         input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
@@ -13,46 +13,38 @@
         .btn-convert { background: #007bff; color: white; }
         .btn-sync { background: #28a745; color: white; display: none; }
         .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; margin-top: 0; }
-        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
         label { font-size: 13px; font-weight: bold; color: #666; }
         .status { font-size: 12px; color: #007bff; margin-top: 8px; display: block; min-height: 1.2em; }
         h2 { text-align: center; color: #2c3e50; }
-        .config-group { border-bottom: 1px solid #eee; margin-bottom: 15px; padding-bottom: 10px; }
+        .count-tag { float: right; background: #e1e4e8; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
     </style>
 </head>
 <body>
 
-    <h2>🚀 节点同步助手</h2>
+    <h2>🚀 节点追加助手 (YAML)</h2>
 
     <div class="card">
-        <div class="config-group">
-            <label>GitHub Token (PAT)</label>
-            <input type="password" id="ghToken" placeholder="github_pat_xxxxxx">
-            
-            <label>私有仓库文件路径</label>
-            <input type="text" id="ghPath" placeholder="用户名/仓库名/main/proxy.json">
-            
-            <button class="btn-save" onclick="saveSettings()">保存配置到浏览器 (LocalStorage)</button>
-            <span id="saveStatus" class="status"></span>
-        </div>
-        <p style="font-size: 11px; color: #999;">* 配置仅保存在您的浏览器缓存中，不会上传至服务器。</p>
+        <label>GitHub 配置</label>
+        <input type="password" id="ghToken" placeholder="GitHub Token (PAT)">
+        <input type="text" id="ghPath" placeholder="粘贴私有仓库文件 URL">
+        <button class="btn-save" onclick="saveSettings()">保存配置</button>
+        <span id="saveStatus" class="status"></span>
     </div>
 
     <div class="card">
         <label>1. 粘贴 VLESS 链接</label>
         <textarea id="vlessInput" placeholder="vless://..."></textarea>
+        <button class="btn-convert" onclick="handleConvert()">解析节点</button>
         
-        <button class="btn-convert" onclick="handleConvert()">解析并生成配置</button>
+        <label style="display:block; margin-top:15px;">2. 待追加内容 (YAML 格式)</label>
+        <pre id="yamlPreview">等待解析...</pre>
         
-        <label style="display:block; margin-top:15px;">2. 预览 Mihomo JSON</label>
-        <pre id="jsonOutput">等待解析...</pre>
-        
-        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 同步到 GitHub 私有仓库</button>
+        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 追加并同步到 GitHub</button>
         <span id="syncStatus" class="status"></span>
     </div>
 
     <script>
-        // 自动加载配置
         window.onload = () => {
             document.getElementById('ghToken').value = localStorage.getItem('gh_token') || '';
             document.getElementById('ghPath').value = localStorage.getItem('gh_path') || '';
@@ -61,25 +53,20 @@
         function saveSettings() {
             localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
             localStorage.setItem('gh_path', document.getElementById('ghPath').value.trim());
-            const status = document.getElementById('saveStatus');
-            status.innerText = '✅ 配置已保存在本地浏览器';
-            status.style.color = '#28a745';
-            setTimeout(() => status.innerText = '', 2000);
+            document.getElementById('saveStatus').innerText = '✅ 配置已保存';
+            setTimeout(() => document.getElementById('saveStatus').innerText = '', 2000);
         }
 
-        let currentJson = null;
+        let newNodeObj = null;
 
-        // 解析 VLESS 逻辑
         function handleConvert() {
             const input = document.getElementById('vlessInput').value.trim();
             if (!input) return;
-            
             try {
                 const url = new URL(input);
                 const params = new URLSearchParams(url.search);
-                
-                currentJson = {
-                    "name": decodeURIComponent(url.hash.substring(1)) || "New_Node",
+                newNodeObj = {
+                    "name": decodeURIComponent(url.hash.substring(1)) || "New_Node_" + Math.floor(Math.random()*1000),
                     "type": "vless",
                     "server": url.hostname,
                     "port": parseInt(url.port),
@@ -95,46 +82,33 @@
                     },
                     "client-fingerprint": params.get('fp') || "chrome"
                 };
-
-                document.getElementById('jsonOutput').innerText = JSON.stringify(currentJson, null, 2);
+                // 预览显示为 YAML 风格的单行
+                document.getElementById('yamlPreview').innerText = `- ${JSON.stringify(newNodeObj)}`;
                 document.getElementById('syncBtn').style.display = 'block';
-                document.getElementById('syncStatus').innerText = "解析成功，可以开始同步。";
+                document.getElementById('syncStatus').innerText = "解析成功，准备追加。";
             } catch (e) {
-                alert("解析失败，请检查 VLESS 链接格式");
-                console.error(e);
+                alert("解析失败");
             }
         }
 
-        // 核心同步逻辑 (GitHub API)
         async function handleSync() {
             const token = document.getElementById('ghToken').value.trim();
-            const fullPath = document.getElementById('ghPath').value.trim();
+            let rawPath = document.getElementById('ghPath').value.trim();
             const statusDiv = document.getElementById('syncStatus');
 
-            if (!token || !fullPath || !currentJson) {
-                alert("请完整填写 Token、路径并先进行解析");
-                return;
-            }
+            if (!token || !rawPath || !newNodeObj) return;
 
-            // 分解路径: [owner, repo, branch, ...path]
-            const pathParts = fullPath.split('/');
-            if (pathParts.length < 4) {
-                alert("路径格式错误！请使用: 用户名/仓库/分支/文件名");
-                return;
-            }
-            const owner = pathParts[0];
-            const repo = pathParts[1];
-            const branch = pathParts[2];
-            const filePath = pathParts.slice(3).join('/');
+            let cleanPath = rawPath.replace(/https:\/\/github\.com\//, '').replace(/\/blob\//, '/');
+            const parts = cleanPath.split('/');
+            const owner = parts[0], repo = parts[1], branch = parts[2], filePath = parts.slice(3).join('/');
 
-            statusDiv.innerText = "⏳ 正在连接 GitHub API...";
-            statusDiv.style.color = "#007bff";
-
+            statusDiv.innerText = "⏳ 正在读取远程现有节点...";
             try {
                 const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-                
-                // 1. 尝试获取文件的 SHA (更新文件必须)
                 let sha = null;
+                let existingProxies = [];
+
+                // 1. 获取现有文件内容
                 const getRes = await fetch(`${apiUrl}?ref=${branch}`, {
                     headers: { "Authorization": `token ${token}` }
                 });
@@ -142,44 +116,47 @@
                 if (getRes.ok) {
                     const fileData = await getRes.json();
                     sha = fileData.sha;
+                    // Base64 解码并转为对象
+                    const rawContent = decodeURIComponent(escape(atob(fileData.content)));
+                    try {
+                        // 尝试解析 JSON/YAML 结构
+                        const parsed = JSON.parse(rawContent);
+                        existingProxies = parsed.proxies || [];
+                    } catch(e) {
+                        // 如果文件是空的或者格式不对，初始化为空数组
+                        existingProxies = [];
+                    }
                 }
 
-                // 2. 包装内容并进行 Base64 编码 (处理中文乱码)
-                const contentObj = { "proxies": [currentJson] };
-                const contentStr = JSON.stringify(contentObj, null, 2);
-                const base64Content = btoa(unescape(encodeURIComponent(contentStr)));
+                // 2. 合并并去重 (以 name 为准，若重名则覆盖旧的)
+                const otherProxies = existingProxies.filter(p => p.name !== newNodeObj.name);
+                const finalProxies = [...otherProxies, newNodeObj];
 
-                // 3. 构建推送数据
-                const putData = {
-                    message: `Sync Node: ${currentJson.name}`,
-                    content: base64Content,
-                    branch: branch
-                };
-                if (sha) putData.sha = sha;
+                // 3. 构建 YAML 格式内容
+                const finalContent = "proxies:\n" + finalProxies.map(p => `  - ${JSON.stringify(p)}`).join("\n");
 
-                // 4. 发送 PUT 请求同步
+                // 4. 推送回 GitHub
+                statusDiv.innerText = `⏳ 正在提交 (共 ${finalProxies.length} 个节点)...`;
                 const putRes = await fetch(apiUrl, {
                     method: 'PUT',
-                    headers: {
-                        "Authorization": `token ${token}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify(putData)
+                    headers: { "Authorization": `token ${token}`, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        message: `Add node: ${newNodeObj.name}`,
+                        content: btoa(unescape(encodeURIComponent(finalContent))),
+                        branch: branch,
+                        sha: sha || undefined
+                    })
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = "✅ 同步成功！私有仓库已更新。";
+                    statusDiv.innerText = `✅ 追加成功！当前共有 ${finalProxies.length} 个节点。`;
                     statusDiv.style.color = "#28a745";
                 } else {
-                    const errDetail = await putRes.json();
-                    statusDiv.innerText = "❌ 同步失败: " + errDetail.message;
-                    statusDiv.style.color = "#dc3545";
+                    const err = await putRes.json();
+                    statusDiv.innerText = "❌ 同步失败: " + err.message;
                 }
-
             } catch (err) {
-                statusDiv.innerText = "❌ 网络错误: " + err.message;
-                statusDiv.style.color = "#dc3545";
-                console.error(err);
+                statusDiv.innerText = "❌ 错误: " + err.message;
             }
         }
     </script>
