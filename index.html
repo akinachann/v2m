@@ -5,17 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mihomo 节点同步工具</title>
     <style>
-        body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; }
+        body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        textarea { width: 100%; height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; }
+        textarea { width: 100%; height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; resize: vertical; }
         input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; }
-        .btn-convert { background: #007bff; color: white; margin-bottom: 10px; }
-        .btn-sync { background: #28a745; color: white; }
-        .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; }
-        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-top: 5px; }
+        .btn-convert { background: #007bff; color: white; }
+        .btn-sync { background: #28a745; color: white; display: none; }
+        .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; margin-top: 0; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
         label { font-size: 13px; font-weight: bold; color: #666; }
-        .status { font-size: 12px; color: #007bff; margin-top: 5px; }
+        .status { font-size: 12px; color: #007bff; margin-top: 8px; display: block; min-height: 1.2em; }
+        h2 { text-align: center; color: #2c3e50; }
+        .config-group { border-bottom: 1px solid #eee; margin-bottom: 15px; padding-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -23,30 +25,34 @@
     <h2>🚀 节点同步助手</h2>
 
     <div class="card">
-        <label>GitHub Personal Access Token (PAT)</label>
-        <input type="password" id="ghToken" placeholder="ghp_xxxxxxxxxxxx">
-        
-        <label>私有仓库路径 (格式: 用户名/仓库名/main/文件名.json)</label>
-        <input type="text" id="ghPath" placeholder="akinachann/my-nodes/main/proxy.json">
-        
-        <button class="btn-save" onclick="saveSettings()">保存配置到浏览器</button>
-        <span id="saveStatus" class="status"></span>
+        <div class="config-group">
+            <label>GitHub Token (PAT)</label>
+            <input type="password" id="ghToken" placeholder="github_pat_xxxxxx">
+            
+            <label>私有仓库文件路径</label>
+            <input type="text" id="ghPath" placeholder="用户名/仓库名/main/proxy.json">
+            
+            <button class="btn-save" onclick="saveSettings()">保存配置到浏览器 (LocalStorage)</button>
+            <span id="saveStatus" class="status"></span>
+        </div>
+        <p style="font-size: 11px; color: #999;">* 配置仅保存在您的浏览器缓存中，不会上传至服务器。</p>
     </div>
 
     <div class="card">
-        <label>粘贴 VLESS 链接</label>
+        <label>1. 粘贴 VLESS 链接</label>
         <textarea id="vlessInput" placeholder="vless://..."></textarea>
-        <button class="btn-convert" onclick="handleConvert()">1. 解析链接</button>
         
-        <label>生成的 Mihomo JSON</label>
+        <button class="btn-convert" onclick="handleConvert()">解析并生成配置</button>
+        
+        <label style="display:block; margin-top:15px;">2. 预览 Mihomo JSON</label>
         <pre id="jsonOutput">等待解析...</pre>
         
-        <button class="btn-sync" id="syncBtn" onclick="handleSync()" style="display:none;">2. 同步到 GitHub 私有仓库</button>
-        <div id="syncStatus" class="status"></div>
+        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 同步到 GitHub 私有仓库</button>
+        <span id="syncStatus" class="status"></span>
     </div>
 
     <script>
-        // 页面加载时自动填充保存过的配置
+        // 自动加载配置
         window.onload = () => {
             document.getElementById('ghToken').value = localStorage.getItem('gh_token') || '';
             document.getElementById('ghPath').value = localStorage.getItem('gh_path') || '';
@@ -55,16 +61,24 @@
         function saveSettings() {
             localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
             localStorage.setItem('gh_path', document.getElementById('ghPath').value.trim());
-            document.getElementById('saveStatus').innerText = '✅ 配置已保存在本地浏览器';
-            setTimeout(() => document.getElementById('saveStatus').innerText = '', 2000);
+            const status = document.getElementById('saveStatus');
+            status.innerText = '✅ 配置已保存在本地浏览器';
+            status.style.color = '#28a745';
+            setTimeout(() => status.innerText = '', 2000);
         }
 
-        // 核心逻辑：VLESS 字符串转 JSON 对象
-        function parseVless(urlStr) {
+        let currentJson = null;
+
+        // 解析 VLESS 逻辑
+        function handleConvert() {
+            const input = document.getElementById('vlessInput').value.trim();
+            if (!input) return;
+            
             try {
-                const url = new URL(urlStr);
+                const url = new URL(input);
                 const params = new URLSearchParams(url.search);
-                return {
+                
+                currentJson = {
                     "name": decodeURIComponent(url.hash.substring(1)) || "New_Node",
                     "type": "vless",
                     "server": url.hostname,
@@ -81,26 +95,92 @@
                     },
                     "client-fingerprint": params.get('fp') || "chrome"
                 };
-            } catch (e) {
-                alert("链接解析失败，请检查格式");
-                return null;
-            }
-        }
 
-        let currentJson = null;
-
-        function handleConvert() {
-            const input = document.getElementById('vlessInput').value.trim();
-            currentJson = parseVless(input);
-            if (currentJson) {
                 document.getElementById('jsonOutput').innerText = JSON.stringify(currentJson, null, 2);
                 document.getElementById('syncBtn').style.display = 'block';
+                document.getElementById('syncStatus').innerText = "解析成功，可以开始同步。";
+            } catch (e) {
+                alert("解析失败，请检查 VLESS 链接格式");
+                console.error(e);
             }
         }
 
-        // 下一步我们将在这里编写 handleSync() 的 API 调用代码
+        // 核心同步逻辑 (GitHub API)
         async function handleSync() {
-            alert("解析成功！下一步我们将接入 GitHub API 实现自动推送。");
+            const token = document.getElementById('ghToken').value.trim();
+            const fullPath = document.getElementById('ghPath').value.trim();
+            const statusDiv = document.getElementById('syncStatus');
+
+            if (!token || !fullPath || !currentJson) {
+                alert("请完整填写 Token、路径并先进行解析");
+                return;
+            }
+
+            // 分解路径: [owner, repo, branch, ...path]
+            const pathParts = fullPath.split('/');
+            if (pathParts.length < 4) {
+                alert("路径格式错误！请使用: 用户名/仓库/分支/文件名");
+                return;
+            }
+            const owner = pathParts[0];
+            const repo = pathParts[1];
+            const branch = pathParts[2];
+            const filePath = pathParts.slice(3).join('/');
+
+            statusDiv.innerText = "⏳ 正在连接 GitHub API...";
+            statusDiv.style.color = "#007bff";
+
+            try {
+                const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+                
+                // 1. 尝试获取文件的 SHA (更新文件必须)
+                let sha = null;
+                const getRes = await fetch(`${apiUrl}?ref=${branch}`, {
+                    headers: { "Authorization": `token ${token}` }
+                });
+
+                if (getRes.ok) {
+                    const fileData = await getRes.json();
+                    sha = fileData.sha;
+                }
+
+                // 2. 包装内容并进行 Base64 编码 (处理中文乱码)
+                const contentObj = { "proxies": [currentJson] };
+                const contentStr = JSON.stringify(contentObj, null, 2);
+                const base64Content = btoa(unescape(encodeURIComponent(contentStr)));
+
+                // 3. 构建推送数据
+                const putData = {
+                    message: `Sync Node: ${currentJson.name}`,
+                    content: base64Content,
+                    branch: branch
+                };
+                if (sha) putData.sha = sha;
+
+                // 4. 发送 PUT 请求同步
+                const putRes = await fetch(apiUrl, {
+                    method: 'PUT',
+                    headers: {
+                        "Authorization": `token ${token}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(putData)
+                });
+
+                if (putRes.ok) {
+                    statusDiv.innerText = "✅ 同步成功！私有仓库已更新。";
+                    statusDiv.style.color = "#28a745";
+                } else {
+                    const errDetail = await putRes.json();
+                    statusDiv.innerText = "❌ 同步失败: " + errDetail.message;
+                    statusDiv.style.color = "#dc3545";
+                }
+
+            } catch (err) {
+                statusDiv.innerText = "❌ 网络错误: " + err.message;
+                statusDiv.style.color = "#dc3545";
+                console.error(err);
+            }
         }
     </script>
 </body>
