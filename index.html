@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 批量同步工具 v3.6</title>
+    <title>Mihomo 批量同步工具 v3.7</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        textarea { width: 100%; height: 120px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; resize: vertical; }
+        textarea { width: 100%; height: 150px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 13px; margin-bottom: 10px; resize: vertical; font-family: monospace; }
         input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
         button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-top: 5px; }
         .btn-convert { background: #007bff; color: white; }
         .btn-sync { background: #28a745; color: white; display: none; }
         .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; }
-        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 200px; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 250px; }
         label { font-size: 13px; font-weight: bold; color: #666; }
         .status { font-size: 12px; color: #007bff; margin-top: 8px; display: block; min-height: 1.2em; }
         h2 { text-align: center; color: #2c3e50; }
@@ -21,7 +21,7 @@
 </head>
 <body>
 
-    <h2>🚀 批量节点助手 v3.6</h2>
+    <h2>🚀 批量节点助手 v3.7</h2>
 
     <div class="card">
         <label>GitHub 配置</label>
@@ -32,14 +32,14 @@
     </div>
 
     <div class="card">
-        <label>1. 粘贴多个链接 (SS/VLESS，一行一个)</label>
-        <textarea id="nodeInput" placeholder="ss://...&#10;vless://..."></textarea>
-        <button class="btn-convert" onclick="handleConvert()">批量解析</button>
+        <label>1. 粘贴链接 (支持 SS/VLESS 混合，一行一个)</label>
+        <textarea id="nodeInput" placeholder="直接粘贴那一堆 ss:// 或 vless:// 链接..."></textarea>
+        <button class="btn-convert" onclick="handleConvert()">解析所有节点</button>
         
-        <label style="display:block; margin-top:15px;">2. 待追加内容预览</label>
+        <label style="display:block; margin-top:15px;">2. 预览 (YAML 格式)</label>
         <pre id="yamlPreview">等待解析...</pre>
         
-        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 批量同步到 GitHub</button>
+        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 同步到 GitHub</button>
         <span id="syncStatus" class="status"></span>
     </div>
 
@@ -58,24 +58,51 @@
 
         let newNodesArray = [];
 
-        // 核心解析函数：支持批量和多协议
+        // 强力解析函数
         function handleConvert() {
             const input = document.getElementById('nodeInput').value.trim();
             if (!input) return;
             
-            const lines = input.split('\n');
+            // 兼容性切割：按换行符或者空格切割，防止链接粘在一起
+            const lines = input.split(/[\n\s]+/).filter(l => l.trim() !== "");
             newNodesArray = [];
             
             lines.forEach((line, index) => {
-                line = line.trim();
-                if (!line) return;
-
                 try {
-                    const url = new URL(line);
                     let node = null;
 
-                    // 解析 VLESS
-                    if (url.protocol === 'vless:') {
+                    // --- 解析 Shadowsocks (SS) ---
+                    if (line.startsWith('ss://')) {
+                        // 提取 # 后的名字，并截断
+                        let name = "SS_Node";
+                        let mainPart = line.substring(5);
+                        if (mainPart.includes('#')) {
+                            const parts = mainPart.split('#');
+                            mainPart = parts[0];
+                            name = decodeURIComponent(parts[1]);
+                        }
+
+                        // 处理可能存在的 [method:password]@host:port 结构
+                        if (mainPart.includes('@')) {
+                            const [auth, serverInfo] = mainPart.split('@');
+                            const [server, port] = serverInfo.split(':');
+                            
+                            // 解码 Auth 部分 (Base64)
+                            const decodedAuth = atob(auth).split(':');
+                            node = {
+                                "name": name,
+                                "type": "ss",
+                                "server": server,
+                                "port": parseInt(port),
+                                "cipher": decodedAuth[0],
+                                "password": decodedAuth[1],
+                                "udp": true
+                            };
+                        }
+                    } 
+                    // --- 解析 VLESS ---
+                    else if (line.startsWith('vless://')) {
+                        const url = new URL(line);
                         const params = new URLSearchParams(url.search);
                         node = {
                             "name": decodeURIComponent(url.hash.substring(1)) || `VLESS_${index}`,
@@ -90,31 +117,20 @@
                             "reality-opts": { "public-key": params.get('pbk') || "", "short-id": params.get('sid') || "" },
                             "client-fingerprint": params.get('fp') || "chrome"
                         };
-                    } 
-                    // 解析 Shadowsocks (SS)
-                    else if (url.protocol === 'ss:') {
-                        const userInfo = atob(url.username).split(':');
-                        node = {
-                            "name": decodeURIComponent(url.hash.substring(1)) || `SS_${index}`,
-                            "type": "ss",
-                            "server": url.hostname,
-                            "port": parseInt(url.port),
-                            "cipher": userInfo[0],
-                            "password": userInfo[1],
-                            "udp": true
-                        };
                     }
 
                     if (node) newNodesArray.push(node);
                 } catch (e) {
-                    console.error("行解析失败: " + line);
+                    console.warn("解析失败行: ", line);
                 }
             });
 
             if (newNodesArray.length > 0) {
                 document.getElementById('yamlPreview').innerText = newNodesArray.map(n => `- ${JSON.stringify(n)}`).join('\n');
                 document.getElementById('syncBtn').style.display = 'block';
-                document.getElementById('syncStatus').innerText = `解析成功，共 ${newNodesArray.length} 个节点`;
+                document.getElementById('syncStatus').innerText = `✅ 解析成功，共 ${newNodesArray.length} 个节点`;
+            } else {
+                alert("未识别到有效链接，请检查格式。");
             }
         }
 
@@ -153,7 +169,7 @@
                     });
                 }
 
-                // 批量合并去重
+                // 批量去重合并
                 const newNodeNames = newNodesArray.map(n => n.name);
                 const otherProxies = existingProxies.filter(p => !newNodeNames.includes(p.name));
                 const finalProxies = [...otherProxies, ...newNodesArray];
@@ -164,7 +180,7 @@
                     method: 'PUT',
                     headers: { "Authorization": "token " + token, "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        message: `Batch sync ${newNodesArray.length} nodes`,
+                        message: `Add ${newNodesArray.length} nodes`,
                         content: btoa(unescape(encodeURIComponent(finalYAML))),
                         branch: branch,
                         sha: sha || undefined
@@ -172,7 +188,7 @@
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = `✅ 批量追加成功！现有总数: ${finalProxies.length}`;
+                    statusDiv.innerText = `✅ 批量成功！现有总数: ${finalProxies.length}`;
                     statusDiv.style.color = "#28a745";
                     document.getElementById('nodeInput').value = "";
                 } else {
