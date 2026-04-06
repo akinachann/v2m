@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 节点同步工具 v3.3</title>
+    <title>Mihomo Sync Tool v3.4</title>
     <style>
-        body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
+        body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        textarea { width: 100%; height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; resize: vertical; }
+        textarea { width: 100%; height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; }
         input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
         button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-top: 5px; }
         .btn-convert { background: #007bff; color: white; }
@@ -21,13 +21,14 @@
 </head>
 <body>
 
-    <h2>🚀 节点同步助手 v3.3</h2>
+    <h2>🚀 节点同步助手 v3.4</h2>
 
     <div class="card">
-        <label>GitHub 配置</label>
+        <label>GitHub Token (PAT)</label>
         <input type="password" id="ghToken" placeholder="github_pat_xxxxxx">
-        <input type="text" id="ghPath" placeholder="粘贴私有仓库 proxy.yaml 的 URL">
-        <button class="btn-save" onclick="saveSettings()">保存配置到本地</button>
+        <label>私有仓库文件路径</label>
+        <input type="text" id="ghPath" placeholder="akinachann/QVSXGHAs58c4cr/meow/proxy.yaml">
+        <button class="btn-save" onclick="saveSettings()">保存配置到浏览器</button>
         <span id="saveStatus" class="status"></span>
     </div>
 
@@ -36,10 +37,10 @@
         <textarea id="vlessInput" placeholder="vless://..."></textarea>
         <button class="btn-convert" onclick="handleConvert()">解析节点</button>
         
-        <label style="display:block; margin-top:15px;">2. 待追加内容预览 (YAML)</label>
+        <label style="display:block; margin-top:15px;">2. 待追加内容预览</label>
         <pre id="yamlPreview">等待解析...</pre>
         
-        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 追加并同步到 GitHub</button>
+        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 同步到 GitHub 私有仓库</button>
         <span id="syncStatus" class="status"></span>
     </div>
 
@@ -52,7 +53,7 @@
         function saveSettings() {
             localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
             localStorage.setItem('gh_path', document.getElementById('ghPath').value.trim());
-            document.getElementById('saveStatus').innerText = '✅ 配置已保存在浏览器本地';
+            document.getElementById('saveStatus').innerText = '✅ 配置已保存';
             setTimeout(() => document.getElementById('saveStatus').innerText = '', 2000);
         }
 
@@ -70,8 +71,7 @@
                     "server": url.hostname,
                     "port": parseInt(url.port),
                     "uuid": url.username,
-                    "udp": true,
-                    "tls": true,
+                    "udp": true, "tls": true,
                     "flow": params.get('flow') || "xtls-rprx-vision",
                     "servername": params.get('sni') || "",
                     "network": params.get('type') || "tcp",
@@ -83,45 +83,31 @@
                 };
                 document.getElementById('yamlPreview').innerText = `- ${JSON.stringify(newNodeObj)}`;
                 document.getElementById('syncBtn').style.display = 'block';
-                document.getElementById('syncStatus').innerText = "解析成功，可以开始同步。";
-                document.getElementById('syncStatus').style.color = "#007bff";
-            } catch (e) {
-                alert("解析失败，请检查链接");
-            }
+                document.getElementById('syncStatus').innerText = "解析成功";
+            } catch (e) { alert("解析失败"); }
         }
 
         async function handleSync() {
-            // 每次同步都重新获取最新填写的 Token 并去除空格
-            const token = document.getElementById('ghToken').value.trim();
+            // 实时获取 Token 并强制去除不可见字符
+            const rawToken = document.getElementById('ghToken').value.replace(/[\n\r\s]/g, '');
             let rawPath = document.getElementById('ghPath').value.trim();
             const statusDiv = document.getElementById('syncStatus');
 
-            if (!token || !rawPath || !newNodeObj) {
-                statusDiv.innerText = "❌ 请先填写配置并解析链接";
-                return;
-            }
+            if (!rawToken || !rawPath || !newNodeObj) return;
 
             // 路径清洗
             let cleanPath = rawPath.replace(/https:\/\/github\.com\//, '').replace(/\/blob\//, '/');
-            const parts = cleanPath.split('/');
-            if(parts.length < 4) { statusDiv.innerText = "❌ 路径格式有误"; return; }
-            
-            const owner = parts[0], repo = parts[1], branch = parts[2], filePath = parts.slice(3).join('/');
-            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+            const p = cleanPath.split('/');
+            if (p.length < 4) { statusDiv.innerText = "❌ 路径格式错误"; return; }
+            const owner = p[0], repo = p[1], branch = p[2], filePath = p.slice(3).join('/');
 
-            statusDiv.innerText = "⏳ 正在连接 GitHub API...";
-            statusDiv.style.color = "#007bff";
-
+            statusDiv.innerText = "⏳ 正在同步...";
             try {
-                // 1. 获取现有内容 (强制不使用缓存)
-                const getRes = await fetch(`${apiUrl}?ref=${branch}&t=${new Date().getTime()}`, {
-                    method: 'GET',
-                    mode: 'cors',
-                    headers: { 
-                        "Authorization": `Bearer ${token}`,
-                        "Accept": "application/vnd.github.v3+json",
-                        "Cache-Control": "no-cache"
-                    }
+                const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
+                
+                // 1. 获取现有内容 (使用最基础的 Authorization 格式)
+                const getRes = await fetch(`${apiUrl}?ref=${branch}&_t=${Date.now()}`, {
+                    headers: { "Authorization": "token " + rawToken }
                 });
 
                 let sha = null;
@@ -131,40 +117,35 @@
                     const fileData = await getRes.json();
                     sha = fileData.sha;
                     const rawContent = decodeURIComponent(escape(atob(fileData.content)));
-                    
-                    // 正则提取现有 JSON 节点
-                    const regex = /\{[\s\S]*?\}/g;
-                    const matches = rawContent.match(regex);
+                    const matches = rawContent.match(/\{[\s\S]*?\}/g);
                     if (matches) {
                         matches.forEach(m => {
                             try {
-                                const p = JSON.parse(m);
-                                if(p.name && p.type) existingProxies.push(p);
+                                const pObj = JSON.parse(m);
+                                if(pObj.name) existingProxies.push(pObj);
                             } catch(e) {}
                         });
                     }
-                } else if (getRes.status !== 404) {
-                    const errBody = await getRes.json();
-                    throw new Error(`读取失败: ${errBody.message}`);
+                } else if (getRes.status === 403 || getRes.status === 401) {
+                    // 如果这里返回 403 且包含 rate limit 文字，说明 token 没生效
+                    const errJson = await getRes.json();
+                    throw new Error(`GitHub 拒绝了请求: ${errJson.message}`);
                 }
 
-                // 2. 合并去重
+                // 2. 合并
                 const otherProxies = existingProxies.filter(p => p.name !== newNodeObj.name);
                 const finalProxies = [...otherProxies, newNodeObj];
                 const finalYAML = "proxies:\n" + finalProxies.map(p => `  - ${JSON.stringify(p)}`).join("\n");
 
-                // 3. 推送更新
-                statusDiv.innerText = `⏳ 正在推送 (共 ${finalProxies.length} 个节点)...`;
+                // 3. 提交
                 const putRes = await fetch(apiUrl, {
                     method: 'PUT',
-                    mode: 'cors',
                     headers: {
-                        "Authorization": `Bearer ${token}`,
-                        "Content-Type": "application/json",
-                        "Accept": "application/vnd.github.v3+json"
+                        "Authorization": "token " + rawToken,
+                        "Content-Type": "application/json"
                     },
                     body: JSON.stringify({
-                        message: `Sync Node: ${newNodeObj.name}`,
+                        message: `Sync: ${newNodeObj.name}`,
                         content: btoa(unescape(encodeURIComponent(finalYAML))),
                         branch: branch,
                         sha: sha || undefined
@@ -172,19 +153,15 @@
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = `✅ 同步成功！节点总数: ${finalProxies.length}`;
+                    statusDiv.innerText = `✅ 同步成功！当前共 ${finalProxies.length} 个节点`;
                     statusDiv.style.color = "#28a745";
-                    document.getElementById('vlessInput').value = "";
-                    document.getElementById('syncBtn').style.display = 'none';
                 } else {
-                    const errDetail = await putRes.json();
-                    throw new Error(errDetail.message);
+                    const err = await putRes.json();
+                    throw new Error(err.message);
                 }
-
             } catch (err) {
-                statusDiv.innerText = "❌ 发生错误: " + err.message;
+                statusDiv.innerText = "❌ " + err.message;
                 statusDiv.style.color = "#dc3545";
-                console.error("Full Error:", err);
             }
         }
     </script>
