@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 同步助手 v3.9 (稳定版)</title>
+    <title>Mihomo 全能同步工具 v4.0</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
         textarea { width: 100%; height: 160px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 13px; margin-bottom: 10px; resize: vertical; font-family: monospace; }
         input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-top: 5px; width: 100%; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; width: 100%; }
         .btn-convert { background: #007bff; color: white; }
         .btn-sync { background: #28a745; color: white; display: none; margin-top: 15px; }
         .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; }
-        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 250px; border: 1px solid #444; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 250px; }
         label { font-size: 13px; font-weight: bold; color: #666; }
         .status { font-size: 12px; color: #007bff; margin-top: 8px; display: block; min-height: 1.2em; }
         h2 { text-align: center; color: #2c3e50; }
@@ -21,22 +21,22 @@
 </head>
 <body>
 
-    <h2>🚀 批量同步助手 v3.9</h2>
+    <h2>🚀 节点同步助手 v4.0 <span style="font-size: 12px; background: #eee; padding: 2px 5px; border-radius: 4px;">SS/VLESS/VMESS</span></h2>
 
     <div class="card">
         <label>GitHub 配置</label>
-        <input type="password" id="ghToken" placeholder="GitHub Token (github_pat_...)">
-        <input type="text" id="ghPath" placeholder="私有仓库路径 (例如: akinachann/repo/meow/proxy.yaml)">
+        <input type="password" id="ghToken" placeholder="GitHub Token">
+        <input type="text" id="ghPath" placeholder="私有仓库路径 URL">
         <button class="btn-save" onclick="saveSettings()">保存配置</button>
         <span id="saveStatus" class="status"></span>
     </div>
 
     <div class="card">
-        <label>1. 粘贴链接 (SS/VLESS，支持多行)</label>
-        <textarea id="nodeInput" placeholder="在此粘贴 ss:// 或 vless:// 链接..."></textarea>
-        <button class="btn-convert" onclick="handleConvert()">开始解析</button>
+        <label>1. 粘贴链接 (支持 SS / VLESS / VMESS 混合批量)</label>
+        <textarea id="nodeInput" placeholder="在此粘贴链接，支持多行混合..."></textarea>
+        <button class="btn-convert" onclick="handleConvert()">批量解析</button>
         
-        <label style="display:block; margin-top:15px;">2. 待追加内容预览</label>
+        <label style="display:block; margin-top:15px;">2. 预览 (YAML 格式)</label>
         <pre id="yamlPreview">等待解析...</pre>
         
         <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 智能去重并同步</button>
@@ -52,63 +52,76 @@
         function saveSettings() {
             localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
             localStorage.setItem('gh_path', document.getElementById('ghPath').value.trim());
-            document.getElementById('saveStatus').innerText = '✅ 配置已保存到本地';
+            document.getElementById('saveStatus').innerText = '✅ 配置已保存';
             setTimeout(() => document.getElementById('saveStatus').innerText = '', 2000);
         }
 
         let newNodesArray = [];
 
-        // 强力 Base64 解码函数，防止补位符缺失报错
+        // 强力 Base64 解码逻辑
         function safeAtob(str) {
             try {
-                return decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
-            } catch (e) {
-                // 尝试补齐 = 号
-                try {
-                    return decodeURIComponent(escape(atob(str.padEnd(str.length + (4 - str.length % 4) % 4, '=').replace(/-/g, '+').replace(/_/g, '/'))));
-                } catch (e2) { return null; }
-            }
+                str = str.replace(/-/g, '+').replace(/_/g, '/');
+                while (str.length % 4) str += '=';
+                return decodeURIComponent(escape(atob(str)));
+            } catch (e) { return null; }
         }
 
         function handleConvert() {
             const input = document.getElementById('nodeInput').value.trim();
-            const statusDiv = document.getElementById('syncStatus');
-            if (!input) { alert("请先粘贴链接"); return; }
+            if (!input) return;
             
-            // 按行或空格切分
             const lines = input.split(/[\n\s]+/).filter(l => l.trim().length > 10);
             newNodesArray = [];
             
             lines.forEach((line, index) => {
                 try {
                     let node = null;
-                    const cleanLine = line.trim();
+                    const l = line.trim();
 
-                    // --- 解析 SS ---
-                    if (cleanLine.startsWith('ss://')) {
-                        let name = "SS_Node_" + (index + 1);
-                        let mainPart = cleanLine.substring(5);
-                        if (mainPart.includes('#')) {
-                            const parts = mainPart.split('#');
-                            mainPart = parts[0];
-                            name = decodeURIComponent(parts[1]);
+                    // --- 1. 解析 VMESS (Base64 JSON 格式) ---
+                    if (l.startsWith('vmess://')) {
+                        const rawJson = safeAtob(l.substring(8));
+                        if (rawJson) {
+                            const v = JSON.parse(rawJson);
+                            node = {
+                                "name": v.ps || `VMESS_${index}`,
+                                "type": "vmess",
+                                "server": v.add,
+                                "port": parseInt(v.port),
+                                "uuid": v.id,
+                                "alterId": parseInt(v.aid || 0),
+                                "cipher": v.scy || "auto",
+                                "udp": true,
+                                "tls": v.tls === "tls",
+                                "network": v.net || "tcp",
+                                "ws-opts": v.net === "ws" ? { "path": v.path || "/", "headers": { "Host": v.host || "" } } : undefined
+                            };
                         }
-                        if (mainPart.includes('@')) {
-                            const [auth, serverInfo] = mainPart.split('@');
+                    } 
+                    // --- 2. 解析 SS ---
+                    else if (l.startsWith('ss://')) {
+                        let name = "SS_Node", main = l.substring(5);
+                        if (main.includes('#')) {
+                            const p = main.split('#');
+                            main = p[0]; name = decodeURIComponent(p[1]);
+                        }
+                        if (main.includes('@')) {
+                            const [auth, serverInfo] = main.split('@');
                             const [server, port] = serverInfo.split(':');
                             const decoded = safeAtob(auth);
                             if (decoded && decoded.includes(':')) {
-                                const [cipher, password] = decoded.split(':');
-                                node = { "name": name, "type": "ss", "server": server, "port": parseInt(port), "cipher": cipher, "password": password, "udp": true };
+                                const [cipher, pwd] = decoded.split(':');
+                                node = { "name": name, "type": "ss", "server": server, "port": parseInt(port), "cipher": cipher, "password": pwd, "udp": true };
                             }
                         }
-                    } 
-                    // --- 解析 VLESS ---
-                    else if (cleanLine.startsWith('vless://')) {
-                        const url = new URL(cleanLine);
+                    }
+                    // --- 3. 解析 VLESS ---
+                    else if (l.startsWith('vless://')) {
+                        const url = new URL(l);
                         const params = new URLSearchParams(url.search);
                         node = {
-                            "name": decodeURIComponent(url.hash.substring(1)) || `VLESS_${index + 1}`,
+                            "name": decodeURIComponent(url.hash.substring(1)) || `VLESS_${index}`,
                             "type": "vless", "server": url.hostname, "port": parseInt(url.port),
                             "uuid": url.username, "udp": true, "tls": true,
                             "flow": params.get('flow') || "xtls-rprx-vision",
@@ -119,26 +132,22 @@
                     }
 
                     if (node) newNodesArray.push(node);
-                } catch (e) { console.warn("跳过无效行:", line); }
+                } catch (e) { console.warn("解析跳过:", line); }
             });
 
             const preview = document.getElementById('yamlPreview');
             if (newNodesArray.length > 0) {
                 preview.innerText = newNodesArray.map(n => `- ${JSON.stringify(n)}`).join('\n');
                 document.getElementById('syncBtn').style.display = 'block';
-                statusDiv.innerText = `✅ 解析成功，识别到 ${newNodesArray.length} 个节点`;
-                statusDiv.style.color = "#28a745";
+                document.getElementById('syncStatus').innerText = `✅ 解析成功，识别到 ${newNodesArray.length} 个节点`;
             } else {
-                preview.innerText = "未识别到有效链接";
-                document.getElementById('syncBtn').style.display = 'none';
-                statusDiv.innerText = "❌ 解析失败，请检查链接格式";
-                statusDiv.style.color = "#dc3545";
+                preview.innerText = "未识别到任何有效节点";
             }
         }
 
         async function handleSync() {
             const token = document.getElementById('ghToken').value.replace(/[\n\r\s]/g, '');
-            let rawPath = document.getElementById('ghPath').value.trim();
+            const rawPath = document.getElementById('ghPath').value.trim();
             const statusDiv = document.getElementById('syncStatus');
 
             let cleanPath = rawPath.replace(/https:\/\/github\.com\//, '').replace(/\/blob\//, '/');
@@ -146,7 +155,7 @@
             const owner = p[0], repo = p[1], branch = p[2], filePath = p.slice(3).join('/');
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
 
-            statusDiv.innerText = "⏳ 正在同步到 GitHub...";
+            statusDiv.innerText = "⏳ 正在同步并查重...";
             try {
                 const getRes = await fetch(`${apiUrl}?ref=${branch}&_t=${Date.now()}`, {
                     headers: { "Authorization": "token " + token }
@@ -154,27 +163,26 @@
 
                 let sha = null, existingProxies = [];
                 if (getRes.ok) {
-                    const fileData = await getRes.json();
-                    sha = fileData.sha;
-                    const rawContent = decodeURIComponent(escape(atob(fileData.content)));
-                    const lines = rawContent.split('\n');
-                    lines.forEach(l => {
-                        const start = l.indexOf('{'), end = l.lastIndexOf('}');
-                        if (start !== -1 && end !== -1) {
+                    const data = await getRes.json();
+                    sha = data.sha;
+                    const raw = decodeURIComponent(escape(atob(data.content)));
+                    raw.split('\n').forEach(line => {
+                        const s = line.indexOf('{'), e = line.lastIndexOf('}');
+                        if (s !== -1 && e !== -1) {
                             try {
-                                const pObj = JSON.parse(l.substring(start, end + 1));
-                                if (pObj.server && pObj.port) existingProxies.push(pObj);
-                            } catch(e) {}
+                                const obj = JSON.parse(line.substring(s, e + 1));
+                                if (obj.server && obj.port) existingProxies.push(obj);
+                            } catch(err) {}
                         }
                     });
                 }
 
                 const getID = (n) => `${n.server}:${n.port}`;
-                const newNodeIDs = newNodesArray.map(getID);
-                const filteredExisting = existingProxies.filter(p => !newNodeIDs.includes(getID(p)));
-                const finalProxies = [...filteredExisting, ...newNodesArray];
+                const newIDs = newNodesArray.map(getID);
+                const filtered = existingProxies.filter(p => !newIDs.includes(getID(p)));
+                const final = [...filtered, ...newNodesArray];
 
-                const finalYAML = "proxies:\n" + finalProxies.map(p => `  - ${JSON.stringify(p)}`).join("\n");
+                const finalYAML = "proxies:\n" + final.map(p => `  - ${JSON.stringify(p)}`).join("\n");
 
                 const putRes = await fetch(apiUrl, {
                     method: 'PUT',
@@ -188,7 +196,7 @@
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = `✅ 同步完成！清理重复项后，现有总计 ${finalProxies.length} 个节点`;
+                    statusDiv.innerText = `✅ 同步成功！清理重复后现有总数: ${final.length}`;
                     statusDiv.style.color = "#28a745";
                     document.getElementById('nodeInput').value = "";
                 } else {
