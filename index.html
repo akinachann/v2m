@@ -3,53 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 节点同步工具 v3.5</title>
+    <title>Mihomo 批量同步工具 v3.6</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        textarea { width: 100%; height: 80px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; resize: vertical; }
+        textarea { width: 100%; height: 120px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 14px; margin-bottom: 10px; resize: vertical; }
         input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
         button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-top: 5px; }
         .btn-convert { background: #007bff; color: white; }
         .btn-sync { background: #28a745; color: white; display: none; }
-        .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; margin-top: 0; }
-        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; min-height: 40px; }
+        .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 200px; }
         label { font-size: 13px; font-weight: bold; color: #666; }
         .status { font-size: 12px; color: #007bff; margin-top: 8px; display: block; min-height: 1.2em; }
         h2 { text-align: center; color: #2c3e50; }
-        p.tip { font-size: 11px; color: #999; margin-top: -10px; margin-bottom: 15px; }
     </style>
 </head>
 <body>
 
-    <h2>🚀 节点追加助手 v3.5</h2>
+    <h2>🚀 批量节点助手 v3.6</h2>
 
     <div class="card">
-        <label>GitHub Token (PAT)</label>
-        <input type="password" id="ghToken" placeholder="github_pat_xxxxxx">
-        
-        <label>私有仓库文件路径 (支持直接粘贴浏览器地址)</label>
-        <input type="text" id="ghPath" placeholder="akinachann/repo/main/proxy.yaml">
-        <p class="tip">* 请确保仓库名大小写正确 (如 QVSXGHAs58c4cr)</p>
-        
-        <button class="btn-save" onclick="saveSettings()">保存配置到浏览器</button>
+        <label>GitHub 配置</label>
+        <input type="password" id="ghToken" placeholder="GitHub Token">
+        <input type="text" id="ghPath" placeholder="私有仓库路径 URL">
+        <button class="btn-save" onclick="saveSettings()">保存配置</button>
         <span id="saveStatus" class="status"></span>
     </div>
 
     <div class="card">
-        <label>1. 粘贴 VLESS 链接</label>
-        <textarea id="vlessInput" placeholder="vless://..."></textarea>
-        <button class="btn-convert" onclick="handleConvert()">解析并生成配置</button>
+        <label>1. 粘贴多个链接 (SS/VLESS，一行一个)</label>
+        <textarea id="nodeInput" placeholder="ss://...&#10;vless://..."></textarea>
+        <button class="btn-convert" onclick="handleConvert()">批量解析</button>
         
-        <label style="display:block; margin-top:15px;">2. 待追加内容预览 (单行 YAML)</label>
+        <label style="display:block; margin-top:15px;">2. 待追加内容预览</label>
         <pre id="yamlPreview">等待解析...</pre>
         
-        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 追加并同步到 GitHub</button>
+        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 批量同步到 GitHub</button>
         <span id="syncStatus" class="status"></span>
     </div>
 
     <script>
-        // 自动加载本地配置
         window.onload = () => {
             document.getElementById('ghToken').value = localStorage.getItem('gh_token') || '';
             document.getElementById('ghPath').value = localStorage.getItem('gh_path') || '';
@@ -58,70 +52,86 @@
         function saveSettings() {
             localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
             localStorage.setItem('gh_path', document.getElementById('ghPath').value.trim());
-            const status = document.getElementById('saveStatus');
-            status.innerText = '✅ 配置已保存在本地浏览器';
-            status.style.color = '#28a745';
-            setTimeout(() => status.innerText = '', 2000);
+            document.getElementById('saveStatus').innerText = '✅ 配置已保存';
+            setTimeout(() => document.getElementById('saveStatus').innerText = '', 2000);
         }
 
-        let newNodeObj = null;
+        let newNodesArray = [];
 
-        // VLESS 解析逻辑
+        // 核心解析函数：支持批量和多协议
         function handleConvert() {
-            const input = document.getElementById('vlessInput').value.trim();
+            const input = document.getElementById('nodeInput').value.trim();
             if (!input) return;
-            try {
-                const url = new URL(input);
-                const params = new URLSearchParams(url.search);
-                newNodeObj = {
-                    "name": decodeURIComponent(url.hash.substring(1)) || "Node_" + Math.floor(Math.random()*1000),
-                    "type": "vless",
-                    "server": url.hostname,
-                    "port": parseInt(url.port),
-                    "uuid": url.username,
-                    "udp": true,
-                    "tls": true,
-                    "flow": params.get('flow') || "xtls-rprx-vision",
-                    "servername": params.get('sni') || "",
-                    "network": params.get('type') || "tcp",
-                    "reality-opts": {
-                        "public-key": params.get('pbk') || "",
-                        "short-id": params.get('sid') || ""
-                    },
-                    "client-fingerprint": params.get('fp') || "chrome"
-                };
-                document.getElementById('yamlPreview').innerText = `- ${JSON.stringify(newNodeObj)}`;
+            
+            const lines = input.split('\n');
+            newNodesArray = [];
+            
+            lines.forEach((line, index) => {
+                line = line.trim();
+                if (!line) return;
+
+                try {
+                    const url = new URL(line);
+                    let node = null;
+
+                    // 解析 VLESS
+                    if (url.protocol === 'vless:') {
+                        const params = new URLSearchParams(url.search);
+                        node = {
+                            "name": decodeURIComponent(url.hash.substring(1)) || `VLESS_${index}`,
+                            "type": "vless",
+                            "server": url.hostname,
+                            "port": parseInt(url.port),
+                            "uuid": url.username,
+                            "udp": true, "tls": true,
+                            "flow": params.get('flow') || "xtls-rprx-vision",
+                            "servername": params.get('sni') || "",
+                            "network": params.get('type') || "tcp",
+                            "reality-opts": { "public-key": params.get('pbk') || "", "short-id": params.get('sid') || "" },
+                            "client-fingerprint": params.get('fp') || "chrome"
+                        };
+                    } 
+                    // 解析 Shadowsocks (SS)
+                    else if (url.protocol === 'ss:') {
+                        const userInfo = atob(url.username).split(':');
+                        node = {
+                            "name": decodeURIComponent(url.hash.substring(1)) || `SS_${index}`,
+                            "type": "ss",
+                            "server": url.hostname,
+                            "port": parseInt(url.port),
+                            "cipher": userInfo[0],
+                            "password": userInfo[1],
+                            "udp": true
+                        };
+                    }
+
+                    if (node) newNodesArray.push(node);
+                } catch (e) {
+                    console.error("行解析失败: " + line);
+                }
+            });
+
+            if (newNodesArray.length > 0) {
+                document.getElementById('yamlPreview').innerText = newNodesArray.map(n => `- ${JSON.stringify(n)}`).join('\n');
                 document.getElementById('syncBtn').style.display = 'block';
-                document.getElementById('syncStatus').innerText = "解析成功，准备同步。";
-                document.getElementById('syncStatus').style.color = "#007bff";
-            } catch (e) {
-                alert("解析失败，请检查 VLESS 格式");
+                document.getElementById('syncStatus').innerText = `解析成功，共 ${newNodesArray.length} 个节点`;
             }
         }
 
-        // 核心同步逻辑：追加模式
         async function handleSync() {
-            const rawToken = document.getElementById('ghToken').value.replace(/[\n\r\s]/g, '');
+            const token = document.getElementById('ghToken').value.replace(/[\n\r\s]/g, '');
             let rawPath = document.getElementById('ghPath').value.trim();
             const statusDiv = document.getElementById('syncStatus');
 
-            if (!rawToken || !rawPath || !newNodeObj) return;
-
-            // 路径清洗：支持粘贴 https 地址
             let cleanPath = rawPath.replace(/https:\/\/github\.com\//, '').replace(/\/blob\//, '/');
             const p = cleanPath.split('/');
-            if (p.length < 4) { statusDiv.innerText = "❌ 路径格式错误"; return; }
             const owner = p[0], repo = p[1], branch = p[2], filePath = p.slice(3).join('/');
+            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
 
-            statusDiv.innerText = "⏳ 正在读取云端节点...";
-            statusDiv.style.color = "#007bff";
-
+            statusDiv.innerText = "⏳ 正在读取并合并...";
             try {
-                const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
-                
-                // 1. 获取现有内容 (带随机参数防止缓存 SHA)
                 const getRes = await fetch(`${apiUrl}?ref=${branch}&_t=${Date.now()}`, {
-                    headers: { "Authorization": "token " + rawToken }
+                    headers: { "Authorization": "token " + token }
                 });
 
                 let sha = null;
@@ -130,46 +140,31 @@
                 if (getRes.ok) {
                     const fileData = await getRes.json();
                     sha = fileData.sha;
-                    // 解码 Base64
                     const rawContent = decodeURIComponent(escape(atob(fileData.content)));
-                    
-                    // 逐行解析 JSON 节点
                     const lines = rawContent.split('\n');
-                    lines.forEach(line => {
-                        const start = line.indexOf('{');
-                        const end = line.lastIndexOf('}');
+                    lines.forEach(l => {
+                        const start = l.indexOf('{'), end = l.lastIndexOf('}');
                         if (start !== -1 && end !== -1) {
                             try {
-                                const jsonObj = JSON.parse(line.substring(start, end + 1));
-                                if (jsonObj.name && jsonObj.server) {
-                                    existingProxies.push(jsonObj);
-                                }
-                            } catch (e) {}
+                                const pObj = JSON.parse(l.substring(start, end + 1));
+                                if (pObj.name) existingProxies.push(pObj);
+                            } catch(e) {}
                         }
                     });
                 }
 
-                // 2. 合并并去重 (以 name 为准)
-                const otherProxies = existingProxies.filter(p => p.name !== newNodeObj.name);
-                const finalProxies = [...otherProxies, newNodeObj];
+                // 批量合并去重
+                const newNodeNames = newNodesArray.map(n => n.name);
+                const otherProxies = existingProxies.filter(p => !newNodeNames.includes(p.name));
+                const finalProxies = [...otherProxies, ...newNodesArray];
 
-                // 3. 构造标准的 YAML 格式
-                let finalYAML = "proxies:\n";
-                finalProxies.forEach(p => {
-                    finalYAML += `  - ${JSON.stringify(p)}\n`;
-                });
+                const finalYAML = "proxies:\n" + finalProxies.map(p => `  - ${JSON.stringify(p)}`).join("\n");
 
-                statusDiv.innerText = `⏳ 正在提交 (当前列表共 ${finalProxies.length} 个节点)...`;
-                
-                // 4. 推送回 GitHub
                 const putRes = await fetch(apiUrl, {
                     method: 'PUT',
-                    headers: {
-                        "Authorization": "token " + rawToken,
-                        "Content-Type": "application/json"
-                    },
+                    headers: { "Authorization": "token " + token, "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        message: `Sync: ${newNodeObj.name}`,
+                        message: `Batch sync ${newNodesArray.length} nodes`,
                         content: btoa(unescape(encodeURIComponent(finalYAML))),
                         branch: branch,
                         sha: sha || undefined
@@ -177,11 +172,9 @@
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = `✅ 同步成功！云端现有 ${finalProxies.length} 个节点。`;
+                    statusDiv.innerText = `✅ 批量追加成功！现有总数: ${finalProxies.length}`;
                     statusDiv.style.color = "#28a745";
-                    // 成功后重置输入状态
-                    document.getElementById('vlessInput').value = "";
-                    document.getElementById('syncBtn').style.display = 'none';
+                    document.getElementById('nodeInput').value = "";
                 } else {
                     const err = await putRes.json();
                     throw new Error(err.message);
@@ -189,7 +182,6 @@
             } catch (err) {
                 statusDiv.innerText = "❌ 错误: " + err.message;
                 statusDiv.style.color = "#dc3545";
-                console.error(err);
             }
         }
     </script>
