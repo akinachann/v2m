@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Private Node Converter</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 0 15px; background: #f9f9f9; }
+        textarea { width: 100%; height: 120px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background: #2ea44f; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin-top: 10px; width: 100%; font-size: 16px; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; }
+        h2 { color: #333; }
+    </style>
+</head>
+<body>
+    <h2>VLESS -> Mihomo (JSON 单行)</h2>
+    <textarea id="input" placeholder="请在此粘贴 vless:// 链接..."></textarea>
+    <button onclick="convert()">立即转换</button>
+    <h3>结果 (点击框内全选):</h3>
+    <pre id="output" onclick="selectText(this)">等待输入...</pre>
+
+    <script>
+        function convert() {
+            const val = document.getElementById('input').value.trim();
+            if (!val) return;
+            try {
+                const url = new URL(val);
+                const params = new URLSearchParams(url.search);
+                const config = {
+                    "name": decodeURIComponent(url.hash.substring(1)) || "HK_Node",
+                    "type": "vless",
+                    "server": url.hostname,
+                    "port": parseInt(url.port),
+                    "uuid": url.username,
+                    "udp": true,
+                    "tls": true,
+                    "flow": params.get('flow') || "xtls-rprx-vision",
+                    "servername": params.get('sni') || "",
+                    "network": params.get('type') || "tcp",
+                    "reality-opts": {
+                        "public-key": params.get('pbk') || "",
+                        "short-id": params.get('sid') || ""
+                    },
+                    "client-fingerprint": params.get('fp') || "chrome"
+                };
+                document.getElementById('output').innerText = JSON.stringify(config);
+            } catch (e) {
+                alert("链接解析失败，请检查格式是否正确");
+            }
+        }
+        function selectText(element) {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+    </script>
+</body>
+</html>
