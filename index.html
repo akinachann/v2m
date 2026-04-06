@@ -3,44 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mihomo 批量同步工具 v3.8 (智能去重版)</title>
+    <title>Mihomo 同步助手 v3.9 (稳定版)</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 650px; margin: 20px auto; padding: 0 15px; background: #f4f7f6; color: #333; line-height: 1.6; }
         .card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
-        textarea { width: 100%; height: 150px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 13px; margin-bottom: 10px; resize: vertical; font-family: monospace; }
+        textarea { width: 100%; height: 160px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 13px; margin-bottom: 10px; resize: vertical; font-family: monospace; }
         input { width: 100%; padding: 10px; margin: 5px 0 15px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-top: 5px; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; margin-top: 5px; width: 100%; }
         .btn-convert { background: #007bff; color: white; }
-        .btn-sync { background: #28a745; color: white; display: none; }
+        .btn-sync { background: #28a745; color: white; display: none; margin-top: 15px; }
         .btn-save { background: #6c757d; color: white; font-size: 12px; width: auto; padding: 5px 15px; }
-        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 250px; }
+        pre { background: #272822; color: #f8f8f2; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 250px; border: 1px solid #444; }
         label { font-size: 13px; font-weight: bold; color: #666; }
         .status { font-size: 12px; color: #007bff; margin-top: 8px; display: block; min-height: 1.2em; }
         h2 { text-align: center; color: #2c3e50; }
-        .badge { background: #e9ecef; color: #495057; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-left: 5px; }
     </style>
 </head>
 <body>
 
-    <h2>🚀 批量同步助手 v3.8 <span class="badge">智能去重</span></h2>
+    <h2>🚀 批量同步助手 v3.9</h2>
 
     <div class="card">
         <label>GitHub 配置</label>
-        <input type="password" id="ghToken" placeholder="GitHub Token">
-        <input type="text" id="ghPath" placeholder="私有仓库路径 (例如: user/repo/main/file.yaml)">
+        <input type="password" id="ghToken" placeholder="GitHub Token (github_pat_...)">
+        <input type="text" id="ghPath" placeholder="私有仓库路径 (例如: akinachann/repo/meow/proxy.yaml)">
         <button class="btn-save" onclick="saveSettings()">保存配置</button>
         <span id="saveStatus" class="status"></span>
     </div>
 
     <div class="card">
         <label>1. 粘贴链接 (SS/VLESS，支持多行)</label>
-        <textarea id="nodeInput" placeholder="在此粘贴链接..."></textarea>
-        <button class="btn-convert" onclick="handleConvert()">批量解析</button>
+        <textarea id="nodeInput" placeholder="在此粘贴 ss:// 或 vless:// 链接..."></textarea>
+        <button class="btn-convert" onclick="handleConvert()">开始解析</button>
         
         <label style="display:block; margin-top:15px;">2. 待追加内容预览</label>
         <pre id="yamlPreview">等待解析...</pre>
         
-        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 智能去重并同步到 GitHub</button>
+        <button class="btn-sync" id="syncBtn" onclick="handleSync()">3. 智能去重并同步</button>
         <span id="syncStatus" class="status"></span>
     </div>
 
@@ -53,23 +52,42 @@
         function saveSettings() {
             localStorage.setItem('gh_token', document.getElementById('ghToken').value.trim());
             localStorage.setItem('gh_path', document.getElementById('ghPath').value.trim());
-            document.getElementById('saveStatus').innerText = '✅ 配置已保存';
+            document.getElementById('saveStatus').innerText = '✅ 配置已保存到本地';
             setTimeout(() => document.getElementById('saveStatus').innerText = '', 2000);
         }
 
         let newNodesArray = [];
 
+        // 强力 Base64 解码函数，防止补位符缺失报错
+        function safeAtob(str) {
+            try {
+                return decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
+            } catch (e) {
+                // 尝试补齐 = 号
+                try {
+                    return decodeURIComponent(escape(atob(str.padEnd(str.length + (4 - str.length % 4) % 4, '=').replace(/-/g, '+').replace(/_/g, '/'))));
+                } catch (e2) { return null; }
+            }
+        }
+
         function handleConvert() {
             const input = document.getElementById('nodeInput').value.trim();
-            if (!input) return;
-            const lines = input.split(/[\n\s]+/).filter(l => l.trim() !== "");
+            const statusDiv = document.getElementById('syncStatus');
+            if (!input) { alert("请先粘贴链接"); return; }
+            
+            // 按行或空格切分
+            const lines = input.split(/[\n\s]+/).filter(l => l.trim().length > 10);
             newNodesArray = [];
             
             lines.forEach((line, index) => {
                 try {
                     let node = null;
-                    if (line.startsWith('ss://')) {
-                        let name = "SS_Node", mainPart = line.substring(5);
+                    const cleanLine = line.trim();
+
+                    // --- 解析 SS ---
+                    if (cleanLine.startsWith('ss://')) {
+                        let name = "SS_Node_" + (index + 1);
+                        let mainPart = cleanLine.substring(5);
                         if (mainPart.includes('#')) {
                             const parts = mainPart.split('#');
                             mainPart = parts[0];
@@ -78,14 +96,19 @@
                         if (mainPart.includes('@')) {
                             const [auth, serverInfo] = mainPart.split('@');
                             const [server, port] = serverInfo.split(':');
-                            const decodedAuth = atob(auth).split(':');
-                            node = { "name": name, "type": "ss", "server": server, "port": parseInt(port), "cipher": decodedAuth[0], "password": decodedAuth[1], "udp": true };
+                            const decoded = safeAtob(auth);
+                            if (decoded && decoded.includes(':')) {
+                                const [cipher, password] = decoded.split(':');
+                                node = { "name": name, "type": "ss", "server": server, "port": parseInt(port), "cipher": cipher, "password": password, "udp": true };
+                            }
                         }
-                    } else if (line.startsWith('vless://')) {
-                        const url = new URL(line);
+                    } 
+                    // --- 解析 VLESS ---
+                    else if (cleanLine.startsWith('vless://')) {
+                        const url = new URL(cleanLine);
                         const params = new URLSearchParams(url.search);
                         node = {
-                            "name": decodeURIComponent(url.hash.substring(1)) || `VLESS_${index}`,
+                            "name": decodeURIComponent(url.hash.substring(1)) || `VLESS_${index + 1}`,
                             "type": "vless", "server": url.hostname, "port": parseInt(url.port),
                             "uuid": url.username, "udp": true, "tls": true,
                             "flow": params.get('flow') || "xtls-rprx-vision",
@@ -94,14 +117,22 @@
                             "client-fingerprint": params.get('fp') || "chrome"
                         };
                     }
+
                     if (node) newNodesArray.push(node);
-                } catch (e) { console.warn("解析错误: ", line); }
+                } catch (e) { console.warn("跳过无效行:", line); }
             });
 
+            const preview = document.getElementById('yamlPreview');
             if (newNodesArray.length > 0) {
-                document.getElementById('yamlPreview').innerText = newNodesArray.map(n => `- ${JSON.stringify(n)}`).join('\n');
+                preview.innerText = newNodesArray.map(n => `- ${JSON.stringify(n)}`).join('\n');
                 document.getElementById('syncBtn').style.display = 'block';
-                document.getElementById('syncStatus').innerText = `✅ 解析成功，共 ${newNodesArray.length} 个节点`;
+                statusDiv.innerText = `✅ 解析成功，识别到 ${newNodesArray.length} 个节点`;
+                statusDiv.style.color = "#28a745";
+            } else {
+                preview.innerText = "未识别到有效链接";
+                document.getElementById('syncBtn').style.display = 'none';
+                statusDiv.innerText = "❌ 解析失败，请检查链接格式";
+                statusDiv.style.color = "#dc3545";
             }
         }
 
@@ -115,7 +146,7 @@
             const owner = p[0], repo = p[1], branch = p[2], filePath = p.slice(3).join('/');
             const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}`;
 
-            statusDiv.innerText = "⏳ 正在云端比对查重...";
+            statusDiv.innerText = "⏳ 正在同步到 GitHub...";
             try {
                 const getRes = await fetch(`${apiUrl}?ref=${branch}&_t=${Date.now()}`, {
                     headers: { "Authorization": "token " + token }
@@ -138,17 +169,10 @@
                     });
                 }
 
-                // --- 智能查重核心逻辑 ---
-                // 定义唯一性标识：server + port
-                const getID = (node) => `${node.server}:${node.port}`;
+                const getID = (n) => `${n.server}:${n.port}`;
                 const newNodeIDs = newNodesArray.map(getID);
-                
-                // 1. 过滤掉云端已存在的同地址节点 (即便名字不同也会被过滤，实现替换)
                 const filteredExisting = existingProxies.filter(p => !newNodeIDs.includes(getID(p)));
-                
-                // 2. 合并
                 const finalProxies = [...filteredExisting, ...newNodesArray];
-                const duplicateCount = (existingProxies.length + newNodesArray.length) - finalProxies.length;
 
                 const finalYAML = "proxies:\n" + finalProxies.map(p => `  - ${JSON.stringify(p)}`).join("\n");
 
@@ -156,7 +180,7 @@
                     method: 'PUT',
                     headers: { "Authorization": "token " + token, "Content-Type": "application/json" },
                     body: JSON.stringify({
-                        message: `Update nodes: added ${newNodesArray.length}, removed ${duplicateCount} duplicates`,
+                        message: `Update ${newNodesArray.length} nodes`,
                         content: btoa(unescape(encodeURIComponent(finalYAML))),
                         branch: branch,
                         sha: sha || undefined
@@ -164,7 +188,7 @@
                 });
 
                 if (putRes.ok) {
-                    statusDiv.innerText = `✅ 同步完成！清理了 ${duplicateCount} 个重复项，现有总数: ${finalProxies.length}`;
+                    statusDiv.innerText = `✅ 同步完成！清理重复项后，现有总计 ${finalProxies.length} 个节点`;
                     statusDiv.style.color = "#28a745";
                     document.getElementById('nodeInput').value = "";
                 } else {
